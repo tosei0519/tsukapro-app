@@ -1,0 +1,494 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>つかプロ</title>
+<link rel="icon" href="tsukapro-icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@500;700;800&display=swap">
+<style>
+/* つかプロ アプリ：ブロックをカメラでとって、ロボットを動かす。
+   画面：左にカメラ（① とる）、右にプログラム（② たしかめる）と動きの見本・うごかすボタン（③ うごかす）。せまい画面では縦に並ぶ */
+:root {
+  --bg: #eef6fa; --paper: #fff; --ink: #1f2a33; --muted: #5d6b77; --line: #d6e3ea;
+  --blue: #5BC2E7; --blue-d: #2f9cc6; --orange: #F7901E; --orange-d: #d97606; --red: #e9553f; --green: #3cb371;
+  --F: #5BC2E7; --B: #6CC24A; --R: #F2B321; --L: #9B7BE0;
+  --font: "M PLUS Rounded 1c", "Hiragino Maru Gothic ProN", "Hiragino Sans", "Yu Gothic", sans-serif;
+  --r: 22px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #10181e; --paper: #1a242c; --ink: #eef3f6; --muted: #a3b2bd; --line: #2b3a45; color-scheme: dark; }
+}
+:root[data-theme="dark"] { --bg: #10181e; --paper: #1a242c; --ink: #eef3f6; --muted: #a3b2bd; --line: #2b3a45; color-scheme: dark; }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font); font-weight: 700; -webkit-tap-highlight-color: transparent; }
+button { font: inherit; color: inherit; cursor: pointer; border: 0; }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 4px solid var(--orange); outline-offset: 3px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+/* 上の帯 */
+header { display: flex; align-items: center; gap: 14px; padding: 10px max(16px, env(safe-area-inset-right)) 10px max(16px, env(safe-area-inset-left)); }
+header .logo { height: 52px; width: 52px; }
+header h1 { margin: 0; font-size: 28px; font-weight: 800; letter-spacing: .04em; flex: 1; }
+.pill { display: inline-flex; align-items: center; gap: 10px; min-height: 56px; padding: 0 22px; border-radius: 999px; font-size: 19px; }
+#connect { background: var(--paper); border: 3px solid var(--blue); color: var(--blue-d); }
+#connect .dot { width: 14px; height: 14px; border-radius: 50%; background: #b9c4cc; }
+#connect.on { border-color: var(--green); color: var(--green); }
+#connect.on .dot { background: var(--green); box-shadow: 0 0 0 5px color-mix(in srgb, var(--green) 25%, transparent); }
+#gear { width: 56px; height: 56px; border-radius: 50%; background: var(--paper); border: 2px solid var(--line); display: grid; place-items: center; }
+
+/* 本体 */
+main { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 16px; padding: 0 max(16px, env(safe-area-inset-right)) 16px max(16px, env(safe-area-inset-left)); height: calc(100% - 72px); }
+.card { background: var(--paper); border-radius: var(--r); padding: 16px; display: flex; flex-direction: column; gap: 12px; min-height: 0; box-shadow: 0 2px 0 var(--line); }
+.step { display: flex; align-items: center; gap: 10px; font-size: 22px; font-weight: 800; }
+.step .n { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 22px; }
+
+/* カメラ */
+.stage { position: relative; flex: 1; min-height: 240px; border-radius: 16px; overflow: hidden; background: #222; }
+.stage video, .stage canvas.shot { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.stage canvas.shot { display: none; }
+.stage.frozen video { display: none; }
+.stage.frozen canvas.shot { display: block; }
+.guide { position: absolute; inset: 8% 30%; border: 4px dashed rgba(255,255,255,.7); border-radius: 18px; pointer-events: none; display: flex; align-items: flex-start; justify-content: center; }
+.guide span { margin-top: -2px; transform: translateY(-50%); background: rgba(0,0,0,.55); color: #fff; padding: 6px 14px; border-radius: 999px; font-size: 16px; white-space: nowrap; }
+.stage.frozen .guide { display: none; }
+.camrow { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+#shoot { width: 96px; height: 96px; border-radius: 50%; background: var(--orange); color: #fff; font-size: 22px; box-shadow: 0 6px 0 var(--orange-d); display: grid; place-items: center; }
+#shoot:active { transform: translateY(4px); box-shadow: 0 2px 0 var(--orange-d); }
+.sub { min-height: 56px; padding: 0 20px; border-radius: 16px; background: var(--bg); border: 2px solid var(--line); font-size: 18px; }
+#msg { flex: 1; min-width: 180px; font-size: 20px; line-height: 1.4; }
+#msg.ok { color: var(--green); } #msg.ng { color: var(--red); }
+.busy { position: absolute; inset: 0; display: none; place-items: center; background: rgba(0,0,0,.35); color: #fff; font-size: 26px; }
+.stage.reading .busy { display: grid; }
+
+/* プログラム */
+.right { display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 16px; min-height: 0; }
+#list { list-style: none; margin: 0; padding: 4px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; flex: 1; min-height: 80px; }
+.blk { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 64px; padding: 6px 14px 6px 8px; border-radius: 16px; background: var(--bg); border: 3px solid transparent; text-align: left; position: relative; transition: transform .15s, opacity .2s; }
+.blk .no { width: 30px; color: var(--muted); font-size: 18px; text-align: center; }
+.blk svg { width: 70px; height: 52px; flex: none; }
+.blk .nm { font-size: 26px; flex: 1; }
+.blk .sec { font-size: 15px; color: var(--muted); }
+.blk .q { position: absolute; right: -6px; top: -8px; background: var(--red); color: #fff; border-radius: 999px; padding: 0 9px; font-size: 15px; }
+.blk.now { border-color: var(--orange); background: color-mix(in srgb, var(--orange) 14%, var(--paper)); transform: scale(1.03); }
+.running .blk:not(.now) { opacity: .45; }
+.empty { color: var(--muted); font-size: 18px; text-align: center; padding: 24px 8px; line-height: 1.6; }
+.listrow { display: flex; gap: 10px; }
+.listrow .sub { flex: 1; }
+
+/* 動きの見本・うごかす */
+.go { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; align-items: center; }
+#field { width: 100%; height: clamp(150px, 27vh, 280px); background: var(--bg); border-radius: 16px; display: block; }
+.btns { display: flex; flex-direction: column; gap: 12px; }
+#run { width: 150px; height: 100px; border-radius: 24px; background: var(--green); color: #fff; font-size: 28px; box-shadow: 0 6px 0 #2a8a55; }
+#run:disabled { background: #b8c4cc; box-shadow: 0 6px 0 #97a3ab; cursor: default; }
+#stop { width: 150px; height: 64px; border-radius: 18px; background: var(--red); color: #fff; font-size: 22px; box-shadow: 0 5px 0 #b63a28; }
+#run:not(:disabled):active, #stop:active { transform: translateY(4px); box-shadow: none; }
+
+/* 選ぶ・設定 */
+dialog { border: 0; border-radius: 24px; padding: 20px; background: var(--paper); color: var(--ink); max-width: min(560px, 94vw); }
+dialog::backdrop { background: rgba(10, 20, 30, .45); }
+.choose { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.choose button { min-height: 96px; border-radius: 18px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 24px; background: var(--bg); border: 3px solid transparent; }
+.choose button.sel { border-color: var(--orange); }
+.choose svg { width: 70px; height: 50px; }
+.drow { display: flex; gap: 12px; margin-top: 14px; }
+.drow button { flex: 1; min-height: 56px; border-radius: 16px; font-size: 19px; background: var(--bg); border: 2px solid var(--line); }
+.drow .del { color: var(--red); }
+#settings h2 { margin: 0 0 6px; font-size: 22px; }
+#settings .note { color: var(--muted); font-weight: 500; font-size: 14px; margin: 0 0 10px; }
+.set { display: grid; grid-template-columns: 7em minmax(0, 1fr) 4.2em; gap: 10px; align-items: center; margin: 10px 0; font-size: 17px; }
+.set input[type=range] { width: 100%; accent-color: var(--orange); }
+.set output { text-align: right; font-variant-numeric: tabular-nums; }
+.chk { display: flex; gap: 10px; align-items: center; margin: 10px 0; font-size: 17px; }
+.chk input { width: 22px; height: 22px; accent-color: var(--orange); }
+#settings select { font: inherit; padding: 8px; border-radius: 10px; width: 100%; }
+#maskview { width: 100%; border-radius: 10px; display: none; margin-top: 6px; background: #000; }
+
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(200%); visibility: hidden; background: var(--ink); color: var(--paper); padding: 14px 24px; border-radius: 999px; font-size: 19px; transition: transform .3s; z-index: 10; max-width: 92vw; text-align: center; }
+.toast.show { transform: translateX(-50%) translateY(0); visibility: visible; }
+
+@media (max-width: 860px) {
+  main { grid-template-columns: minmax(0, 1fr); height: auto; }
+  .stage { min-height: 52vh; }
+  .right { grid-template-rows: auto auto; }
+  #list { max-height: none; }
+  header h1 { font-size: 22px; }
+  #connect .t { display: none; }
+}
+@media (max-width: 480px) {
+  .go { grid-template-columns: minmax(0, 1fr); }
+  .btns { flex-direction: row; } #run, #stop { flex: 1; width: auto; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<header>
+  <img class="logo" src="tsukapro-icon.svg" alt="">
+  <h1>つかプロ</h1>
+  <button id="connect" class="pill" aria-live="polite"><span class="dot"></span><span class="t">ロボットと つなぐ</span></button>
+  <button id="gear" aria-label="せんせい用の せってい">
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+  </button>
+</header>
+
+<main>
+  <section class="card" aria-labelledby="s1">
+    <div class="step" id="s1"><span class="n" style="background:var(--orange)">1</span>ブロックを ならべて、とろう</div>
+    <div class="stage" id="stage">
+      <video id="video" playsinline muted autoplay></video>
+      <canvas class="shot" id="shot"></canvas>
+      <div class="guide"><span>この なかに、うえから じゅんばんに</span></div>
+      <div class="busy">よんでいるよ…</div>
+    </div>
+    <div class="camrow">
+      <button id="shoot" aria-label="しゃしんを とる">とる</button>
+      <div id="msg" role="status">くろい かみの うえに、しろい ブロックを ならべてね</div>
+      <button class="sub" id="retake" hidden>もういちど</button>
+      <label class="sub" style="display:grid;place-items:center;cursor:pointer">しゃしんを えらぶ<input id="file" type="file" accept="image/*" class="sr"></label>
+    </div>
+  </section>
+
+  <div class="right">
+    <section class="card" aria-labelledby="s2" style="min-height:0">
+      <div class="step" id="s2"><span class="n" style="background:var(--blue)">2</span>あっているか たしかめよう</div>
+      <ol id="list" aria-label="プログラム"></ol>
+      <div class="listrow">
+        <button class="sub" id="add">＋ ふやす</button>
+        <button class="sub" id="clear">ぜんぶ けす</button>
+      </div>
+    </section>
+    <section class="card" aria-labelledby="s3">
+      <div class="step" id="s3"><span class="n" style="background:var(--green)">3</span>うごかそう</div>
+      <div class="go">
+        <canvas id="field" aria-label="うごきの みほん"></canvas>
+        <div class="btns">
+          <button id="run" disabled>うごかす</button>
+          <button id="stop">とめる</button>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<dialog id="chooser" aria-labelledby="chooserTitle">
+  <div class="step" id="chooserTitle" style="margin-bottom:12px">どの ブロック？</div>
+  <div class="choose" id="choices"></div>
+  <div class="drow"><button class="del" id="delBlk">この ブロックを けす</button><button id="closeChooser">とじる</button></div>
+</dialog>
+
+<dialog id="settings" aria-labelledby="setTitle">
+  <h2 id="setTitle">せんせい用の せってい</h2>
+  <p class="note">1つの ブロックで うごく 時間です。ロボットに 毎回 送るので、ロボットの プログラムを 書きなおさなくても かわります。</p>
+  <div class="set"><label for="tF">まえ</label><input id="tF" type="range" min="0.2" max="5" step="0.1"><output for="tF"></output></div>
+  <div class="set"><label for="tB">うしろ</label><input id="tB" type="range" min="0.2" max="5" step="0.1"><output for="tB"></output></div>
+  <div class="set"><label for="tR">みぎ</label><input id="tR" type="range" min="0.1" max="2" step="0.05"><output for="tR"></output></div>
+  <div class="set"><label for="tL">ひだり</label><input id="tL" type="range" min="0.1" max="2" step="0.05"><output for="tL"></output></div>
+  <div class="set"><label for="tGap">あいだ</label><input id="tGap" type="range" min="0" max="1" step="0.05"><output for="tGap"></output></div>
+  <hr style="border:0;border-top:1px solid var(--line)">
+  <div class="set" style="grid-template-columns:7em minmax(0,1fr)"><label for="camSel">カメラ</label><select id="camSel"></select></div>
+  <label class="chk"><input type="checkbox" id="autoTh" checked> 明るさを 自動で 決める</label>
+  <div class="set"><label for="th">しきい値</label><input id="th" type="range" min="10" max="245" step="1" disabled><output for="th"></output></div>
+  <label class="chk"><input type="checkbox" id="invert"> ブロックが まわりより 暗い（白い 机の とき）</label>
+  <label class="chk"><input type="checkbox" id="showMask"> 読み取った 白黒の 図を 見る</label>
+  <canvas id="maskview"></canvas>
+  <label class="chk"><input type="checkbox" id="sound" checked> 音を 鳴らす</label>
+  <div class="drow"><button id="resetSet">はじめの 値に もどす</button><button id="closeSet">とじる</button></div>
+</dialog>
+
+<div class="toast" id="toast" role="alert"></div>
+
+<script type="module">
+import {readBlocks, outline, drawMask} from './recognize.js';
+
+// ---------- ブロックの名前と色 ----------
+const NAME = {F: 'まえ', B: 'うしろ', R: 'みぎ', L: 'ひだり'};
+const COLOR = {F: 'var(--F)', B: 'var(--B)', R: 'var(--R)', L: 'var(--L)'};
+const SERVICE = '6e400001-b5a3-f393-e0a9-e50e24dcca9e', RX = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+const $ = id => document.getElementById(id);
+const secs = v => String(Math.round(v * 100) / 100);
+
+function blockSvg(k) {
+  const pts = outline(k, true);
+  const d = 'M' + pts.map(([x, y]) => `${x.toFixed(0)},${y.toFixed(0)}`).join('L') + 'Z';
+  return `<svg viewBox="-280 -125 560 250" aria-hidden="true"><path d="${d}" fill="${COLOR[k]}" stroke="rgba(0,0,0,.18)" stroke-width="8" stroke-linejoin="round"/></svg>`;
+}
+
+// ---------- 設定（この端末に保存） ----------
+const DEF = {F: 1.0, B: 1.0, R: 0.45, L: 0.45, gap: 0.15, autoTh: true, th: 128, invert: false, sound: true, cam: ''};
+let S = {...DEF};
+try { Object.assign(S, JSON.parse(localStorage.getItem('tsukapro-settings') || '{}')); } catch (e) {}
+const saveS = () => { try { localStorage.setItem('tsukapro-settings', JSON.stringify(S)); } catch (e) {} };
+
+// ---------- プログラム ----------
+let prog = [];   // [{kind, unsure}]
+try { prog = JSON.parse(localStorage.getItem('tsukapro-program') || '[]'); } catch (e) {}
+const saveP = () => { try { localStorage.setItem('tsukapro-program', JSON.stringify(prog)); } catch (e) {} };
+let editing = -1, running = false, stopFlag = false;
+
+function renderList(now = -1) {
+  const ol = $('list');
+  if (!prog.length) {
+    ol.innerHTML = `<li class="empty">まだ ブロックが ないよ。<br>① で しゃしんを とるか、「＋ ふやす」で ならべてね</li>`;
+  } else {
+    ol.innerHTML = prog.map((b, i) => `<li><button class="blk${i === now ? ' now' : ''}" data-i="${i}" aria-label="${i + 1}ばんめ ${NAME[b.kind]}。おすと かえられる">
+      <span class="no">${i + 1}</span>${blockSvg(b.kind)}<span class="nm">${NAME[b.kind]}</span><span class="sec">${secs(S[b.kind])}びょう</span>
+      ${b.unsure ? '<span class="q">？</span>' : ''}</button></li>`).join('');
+    if (now >= 0) ol.querySelector('.now')?.scrollIntoView({block: 'nearest', behavior: 'smooth'});
+  }
+  $('run').disabled = !prog.length || running;
+  drawField();
+}
+$('list').addEventListener('click', e => {
+  const b = e.target.closest('.blk'); if (!b || running) return;
+  openChooser(+b.dataset.i);
+});
+function openChooser(i) {
+  editing = i;
+  const cur = i >= 0 && i < prog.length ? prog[i].kind : null;
+  $('choices').innerHTML = ['F', 'B', 'L', 'R'].map(k => `<button data-k="${k}" class="${k === cur ? 'sel' : ''}">${blockSvg(k)}${NAME[k]}</button>`).join('');
+  $('delBlk').hidden = i >= prog.length;
+  $('chooser').showModal();
+}
+$('choices').addEventListener('click', e => {
+  const b = e.target.closest('button[data-k]'); if (!b) return;
+  if (editing >= prog.length) prog.push({kind: b.dataset.k}); else prog[editing] = {kind: b.dataset.k};
+  saveP(); renderList(); $('chooser').close(); beep(880, 0.06);
+});
+$('delBlk').onclick = () => { prog.splice(editing, 1); saveP(); renderList(); $('chooser').close(); };
+$('closeChooser').onclick = () => $('chooser').close();
+$('add').onclick = () => { if (!running) openChooser(prog.length); };
+$('clear').onclick = () => { if (running || !prog.length) return; if (confirm('ぜんぶ けしても いい？')) { prog = []; saveP(); renderList(); } };
+
+// ---------- カメラ ----------
+const video = $('video'), shot = $('shot'), stage = $('stage');
+let stream = null;
+async function startCamera() {
+  if (!navigator.mediaDevices?.getUserMedia) { say('この ブラウザでは カメラが つかえないよ。「しゃしんを えらぶ」を つかってね', 'ng'); return; }
+  try {
+    stream?.getTracks().forEach(t => t.stop());
+    const v = S.cam ? {deviceId: {exact: S.cam}} : {facingMode: {ideal: 'environment'}};
+    stream = await navigator.mediaDevices.getUserMedia({video: {...v, width: {ideal: 1920}, height: {ideal: 1080}}, audio: false});
+    video.srcObject = stream; await video.play();
+    listCameras();
+  } catch (e) {
+    say('カメラが つかえないよ。ブラウザで カメラを ゆるして（許可して）ね', 'ng');
+  }
+}
+async function listCameras() {
+  const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+  const cur = stream?.getVideoTracks()[0]?.getSettings().deviceId;
+  $('camSel').innerHTML = devs.map((d, i) => `<option value="${d.deviceId}" ${d.deviceId === cur ? 'selected' : ''}>${d.label || 'カメラ ' + (i + 1)}</option>`).join('');
+}
+$('camSel').onchange = () => { S.cam = $('camSel').value; saveS(); unfreeze(); startCamera(); };
+
+function say(t, cls = '') { const m = $('msg'); m.textContent = t; m.className = cls; }
+function unfreeze() { stage.classList.remove('frozen'); $('retake').hidden = true; $('shoot').hidden = false; }
+$('retake').onclick = () => { unfreeze(); say('ブロックを ならべて、もういちど とってね'); };
+
+async function readFrom(src) {
+  const w = src.videoWidth || src.naturalWidth || src.width, h = src.videoHeight || src.naturalHeight || src.height;
+  shot.width = w; shot.height = h;
+  const g = shot.getContext('2d'); g.drawImage(src, 0, 0, w, h);
+  stage.classList.add('frozen', 'reading');
+  $('shoot').hidden = true; $('retake').hidden = false;
+  beep(1200, 0.05);
+  await new Promise(r => setTimeout(r, 60));               // 「よんでいるよ」を先に出す
+  const r = readBlocks(shot, {threshold: S.autoTh ? undefined : S.th, invert: S.invert});
+  stage.classList.remove('reading');
+  if (r.base) { if (S.autoTh) { S.th = r.base.threshold; $('th').value = S.th; $('th').nextElementSibling.value = S.th; } drawMask($('maskview'), r.base); }
+  if (!r.blocks || !r.blocks.length) {
+    say('ブロックが 見つからなかったよ。くろい かみの うえで、もういちど とってね', 'ng'); beep(300, 0.2); return;
+  }
+  // 写真の上に番号を描く
+  const unit = (r.unit || 0.002) * w;
+  r.blocks.forEach((b, i) => {
+    const x = b.x * w, y = b.y * h, rad = Math.max(18, unit * 48);
+    g.beginPath(); g.arc(x, y, rad, 0, 7);
+    g.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--' + b.kind).trim(); g.fill();
+    g.lineWidth = rad * 0.16; g.strokeStyle = '#fff'; g.stroke();
+    g.fillStyle = '#fff'; g.font = `800 ${rad}px "M PLUS Rounded 1c", sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(String(i + 1), x, y + rad * 0.05);
+  });
+  prog = r.blocks.map(b => ({kind: b.kind, unsure: b.margin < 0.03}));
+  saveP(); renderList();
+  const unsure = prog.filter(b => b.unsure).length;
+  if (r.ok && !unsure) { say(`よめたよ！ ブロックは ${prog.length}こ`, 'ok'); fanfare(); }
+  else if (r.ok) { say(`${prog.length}こ よめたよ。「？」の ブロックが あっているか 見てね`, 'ok'); beep(900, 0.08); }
+  else { say('ちょっと じしんが ないよ。② で あっているか たしかめてね', 'ng'); beep(500, 0.12); }
+}
+$('shoot').onclick = () => {
+  if (!video.videoWidth) { say('カメラが まだ うごいていないよ', 'ng'); return; }
+  readFrom(video);
+};
+$('file').onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  const img = new Image(); img.onload = () => { readFrom(img); URL.revokeObjectURL(img.src); };
+  img.src = URL.createObjectURL(f); e.target.value = '';
+};
+
+// ---------- Bluetooth ----------
+let dev = null, rxChar = null;
+function setConn(on, name = '') {
+  $('connect').classList.toggle('on', on);
+  $('connect').querySelector('.t').textContent = on ? 'つながっているよ' : 'ロボットと つなぐ';
+  $('connect').setAttribute('aria-label', on ? `${name} と つながっています。おすと きります` : 'ロボットと つなぐ');
+}
+$('connect').onclick = async () => {
+  if (rxChar) { if (!running) { dev.gatt.disconnect(); } return; }
+  if (!navigator.bluetooth) { toast('この ブラウザでは ロボットと つながれないよ（パソコンや アンドロイドの Chrome で ひらいてね）'); return; }
+  try {
+    dev = await navigator.bluetooth.requestDevice({filters: [{namePrefix: 'Uto_Robot'}, {services: [SERVICE]}], optionalServices: [SERVICE]});
+    dev.addEventListener('gattserverdisconnected', () => { rxChar = null; setConn(false); if (running) { stopFlag = true; } toast('ロボットと きれたよ'); });
+    const srv = await dev.gatt.connect();
+    rxChar = await (await srv.getPrimaryService(SERVICE)).getCharacteristic(RX);
+    setConn(true, dev.name); toast(`${dev.name || 'ロボット'} と つながったよ！`); fanfare();
+  } catch (e) {
+    if (e.name !== 'NotFoundError') toast('つながらなかったよ。ロボットの スイッチを 入れて、もういちど おしてね');
+  }
+};
+async function send(text) {
+  if (!rxChar) return false;
+  const data = new TextEncoder().encode(text);
+  try {
+    if (rxChar.properties.writeWithoutResponse) await rxChar.writeValueWithoutResponse(data); else await rxChar.writeValue(data);
+    return true;
+  } catch (e) { return false; }
+}
+
+// ---------- うごかす ----------
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+$('run').onclick = async () => {
+  if (!prog.length || running) return;
+  running = true; stopFlag = false; document.body.classList.add('running'); $('run').disabled = true;
+  if (!rxChar) toast('ロボットと つないでいないので、がめんの なかで うごかすよ');
+  simReset();
+  for (let i = 0; i < prog.length && !stopFlag; i++) {
+    const k = prog[i].kind, ms = Math.round(S[k] * 1000);
+    renderList(i); beep({F: 1175, B: 587, L: 880, R: 988}[k], 0.07);
+    await send(`${k}${ms}`);
+    await simStep(k, ms);
+    if (stopFlag) break;
+    await sleep(S.gap * 1000 + 40);
+  }
+  const done = !stopFlag;
+  running = false; document.body.classList.remove('running'); renderList();
+  if (done) { fanfare(); toast('できた！'); }
+};
+$('stop').onclick = async () => { stopFlag = true; await send('S'); simAbort?.(); if (!running) toast('とめたよ'); };
+
+// ---------- 動きの見本（上から見たマス） ----------
+const field = $('field'), fg = field.getContext('2d');
+const sim = {x: 0, y: 0, dir: 0, trail: []};          // dir: 0=上 1=右 2=下 3=左（画面の上が「まえ」）
+let simAbort = null;
+function simReset() { sim.x = 0; sim.y = 0; sim.dir = 0; sim.trail = [[0, 0]]; drawField(); }
+function simPath() {
+  const s = {x: 0, y: 0, dir: 0}, pts = [[0, 0]];
+  for (const b of prog) {
+    if (b.kind === 'F' || b.kind === 'B') { const v = b.kind === 'F' ? 1 : -1; s.x += [0, 1, 0, -1][s.dir] * v; s.y += [-1, 0, 1, 0][s.dir] * v; pts.push([s.x, s.y]); }
+    else s.dir = (s.dir + (b.kind === 'R' ? 1 : 3)) % 4;
+  }
+  return pts;
+}
+function simStep(k, ms) {
+  return new Promise(res => {
+    const x0 = sim.x, y0 = sim.y, d0 = sim.dir, t0 = performance.now();
+    let x1 = x0, y1 = y0, d1 = d0;
+    if (k === 'F' || k === 'B') { const v = k === 'F' ? 1 : -1; x1 += [0, 1, 0, -1][d0] * v; y1 += [-1, 0, 1, 0][d0] * v; }
+    else d1 = d0 + (k === 'R' ? 1 : -1);
+    let stopped = false; simAbort = () => { stopped = true; };
+    const tick = now => {
+      const p = Math.min(1, (now - t0) / ms), e = p < .5 ? 2 * p * p : 1 - (-2 * p + 2) ** 2 / 2;
+      sim.x = x0 + (x1 - x0) * e; sim.y = y0 + (y1 - y0) * e; sim.dir = d0 + (d1 - d0) * e;
+      drawField(true);
+      if (p < 1 && !stopped && !stopFlag) requestAnimationFrame(tick);
+      else { if (!stopped && !stopFlag) { sim.x = x1; sim.y = y1; sim.dir = ((d1 % 4) + 4) % 4; if (k === 'F' || k === 'B') sim.trail.push([x1, y1]); } drawField(true); simAbort = null; res(); }
+    };
+    requestAnimationFrame(tick);
+  });
+}
+function drawField(live = false) {
+  const r = field.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
+  if (!r.width) return;
+  field.width = r.width * dpr; field.height = r.height * dpr;
+  const W = field.width, H = field.height;
+  fg.clearRect(0, 0, W, H);
+  const path = simPath();
+  const xs = path.map(p => p[0]), ys = path.map(p => p[1]);
+  const minX = Math.min(-1, ...xs) - 0.5, maxX = Math.max(1, ...xs) + 0.5, minY = Math.min(-1, ...ys) - 0.5, maxY = Math.max(1, ...ys) + 0.5;
+  const cell = Math.min(W / (maxX - minX + 0.4), H / (maxY - minY + 0.4), 90 * dpr);
+  const ox = W / 2 - (minX + maxX) / 2 * cell, oy = H / 2 - (minY + maxY) / 2 * cell;
+  const P = (x, y) => [ox + x * cell, oy + y * cell];
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  // マス目
+  fg.strokeStyle = css('--line'); fg.lineWidth = 1.5 * dpr;
+  for (let x = Math.floor(minX); x <= Math.ceil(maxX); x++) { const [a] = P(x + 0.5, 0); fg.beginPath(); fg.moveTo(a, 0); fg.lineTo(a, H); fg.stroke(); }
+  for (let y = Math.floor(minY); y <= Math.ceil(maxY); y++) { const [, b] = P(0, y + 0.5); fg.beginPath(); fg.moveTo(0, b); fg.lineTo(W, b); fg.stroke(); }
+  // スタート
+  const [sx, sy] = P(0, 0);
+  fg.fillStyle = css('--blue'); fg.globalAlpha = .25; fg.fillRect(sx - cell * .45, sy - cell * .45, cell * .9, cell * .9); fg.globalAlpha = 1;
+  // 予定の道（点線）と、通った道
+  fg.lineCap = 'round'; fg.lineJoin = 'round';
+  fg.setLineDash([cell * .08, cell * .14]); fg.strokeStyle = css('--muted'); fg.lineWidth = 4 * dpr;
+  fg.beginPath(); path.forEach(([x, y], i) => { const [a, b] = P(x, y); i ? fg.lineTo(a, b) : fg.moveTo(a, b); }); fg.stroke();
+  fg.setLineDash([]);
+  if (live || running) {
+    fg.strokeStyle = css('--orange'); fg.lineWidth = 7 * dpr;
+    fg.beginPath(); [...sim.trail, [sim.x, sim.y]].forEach(([x, y], i) => { const [a, b] = P(x, y); i ? fg.lineTo(a, b) : fg.moveTo(a, b); }); fg.stroke();
+  }
+  // ロボット（上から見た丸い体＋タイヤ＋目）
+  const [rx, ry] = live || running ? P(sim.x, sim.y) : P(0, 0), dir = live || running ? sim.dir : 0, s = cell * .34;
+  fg.save(); fg.translate(rx, ry); fg.rotate(dir * Math.PI / 2);
+  fg.fillStyle = '#3a3a3a'; fg.fillRect(-s * 1.25, -s * .55, s * .3, s * 1.1); fg.fillRect(s * .95, -s * .55, s * .3, s * 1.1);
+  fg.fillStyle = css('--blue'); fg.beginPath(); fg.roundRect(-s, -s * 1.05, s * 2, s * 2.1, s * .55); fg.fill();
+  fg.fillStyle = '#fff'; for (const ex of [-.42, .42]) { fg.beginPath(); fg.arc(s * ex, -s * .62, s * .26, 0, 7); fg.fill(); }
+  fg.fillStyle = '#222'; for (const ex of [-.42, .42]) { fg.beginPath(); fg.arc(s * ex, -s * .68, s * .12, 0, 7); fg.fill(); }
+  fg.fillStyle = css('--orange'); fg.beginPath(); fg.arc(0, s * .2, s * .17, 0, 7); fg.fill();
+  fg.restore();
+}
+addEventListener('resize', () => drawField(running));
+
+// ---------- 音 ----------
+let ac = null;
+function beep(f, d = 0.08, when = 0) {
+  if (!S.sound) return;
+  try {
+    ac ||= new (window.AudioContext || window.webkitAudioContext)();
+    const o = ac.createOscillator(), g = ac.createGain(), t = ac.currentTime + when;
+    o.type = 'triangle'; o.frequency.value = f; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.25, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+    o.connect(g).connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+  } catch (e) {}
+}
+const fanfare = () => [1047, 1319, 1568, 2093].forEach((f, i) => beep(f, i === 3 ? 0.22 : 0.09, i * 0.1));
+let toastT = 0;
+function toast(t) { const el = $('toast'); el.textContent = t; el.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove('show'), 3200); }
+
+// ---------- 設定の画面 ----------
+const fmt = v => secs(v) + 'びょう';
+for (const k of ['F', 'B', 'R', 'L', 'Gap']) {
+  const key = k === 'Gap' ? 'gap' : k, el = $('t' + k);
+  el.value = S[key]; el.nextElementSibling.value = fmt(S[key]);
+  el.oninput = () => { S[key] = +el.value; el.nextElementSibling.value = fmt(el.value); saveS(); renderList(); };
+}
+$('autoTh').checked = S.autoTh; $('th').disabled = S.autoTh; $('th').value = S.th; $('th').nextElementSibling.value = S.th;
+$('autoTh').onchange = () => { S.autoTh = $('autoTh').checked; $('th').disabled = S.autoTh; saveS(); };
+$('th').oninput = () => { S.th = +$('th').value; $('th').nextElementSibling.value = S.th; saveS(); };
+$('invert').checked = S.invert; $('invert').onchange = () => { S.invert = $('invert').checked; saveS(); };
+$('sound').checked = S.sound; $('sound').onchange = () => { S.sound = $('sound').checked; saveS(); };
+$('showMask').onchange = () => { $('maskview').style.display = $('showMask').checked ? 'block' : 'none'; };
+$('gear').onclick = () => { listCameras().catch(() => {}); $('settings').showModal(); };
+$('closeSet').onclick = () => $('settings').close();
+$('resetSet').onclick = () => { const cam = S.cam; S = {...DEF, cam}; saveS(); location.reload(); };
+
+renderList();
+simReset();
+startCamera();
+window.__app = {readFrom, get prog() { return prog; }};
+</script>
+</body>
+</html>
