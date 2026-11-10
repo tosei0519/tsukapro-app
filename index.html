@@ -86,7 +86,9 @@ main { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); g
 
 /* 動きの見本・うごかす */
 .go { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; align-items: center; }
-#field { width: 100%; height: clamp(150px, 27vh, 280px); background: var(--bg); border-radius: 16px; display: block; }
+#field { width: 100%; height: clamp(160px, 28vh, 300px); border-radius: 16px; display: block; cursor: pointer; touch-action: manipulation; }
+.hint { margin: 6px 0 0; font-size: 14px; color: var(--muted); font-weight: 500; }
+.hint.ng { color: var(--red); font-weight: 800; }
 .btns { display: flex; flex-direction: column; gap: 12px; }
 #run { width: 150px; height: 100px; border-radius: 24px; background: var(--green); color: #fff; font-size: 28px; box-shadow: 0 6px 0 #2a8a55; }
 #run:disabled { background: #b8c4cc; box-shadow: 0 6px 0 #97a3ab; cursor: default; }
@@ -171,7 +173,8 @@ dialog::backdrop { background: rgba(10, 20, 30, .45); }
     <section class="card" aria-labelledby="s3">
       <div class="step" id="s3"><span class="n" style="background:var(--green)">3</span>うごかそう</div>
       <div class="go">
-        <canvas id="field" aria-label="うごきの みほん"></canvas>
+        <div><canvas id="field" aria-label="つかプロフィールドの みほん。マスを タップして スタートを えらぶ"></canvas>
+        <p class="hint" id="fieldHint">マスを タップして スタートを えらぶ（もう いちど タップで むきを かえる）</p></div>
         <div class="btns">
           <button id="run" disabled>うごかす</button>
           <button id="stop">とめる</button>
@@ -424,87 +427,144 @@ $('run').onclick = async () => {
   simReset();
   for (let i = 0; i < prog.length && !stopFlag; i++) {
     const k = prog[i].kind, ms = Math.round(S[k] * 1000);
+    if (leavesAt(i)) {                 // このブロックでフィールドの外に出る → 動かす前に止める
+      renderList(i); stopFlag = true; await send('S'); beep(300, 0.25);
+      toast('フィールドの そとに でちゃうから、とめたよ'); break;
+    }
     renderList(i); beep({F: 1175, B: 587, L: 880, R: 988}[k], 0.07);
     await send(`${k}${ms}`);
     await simStep(k, ms);
     if (stopFlag) break;
     await sleep(S.gap * 1000 + 40);
   }
-  const done = !stopFlag;
+  const done = !stopFlag && !leavesAt(prog.length);
   running = false; document.body.classList.remove('running'); renderList();
   if (done) { fanfare(); toast('できた！'); }
 };
 $('stop').onclick = async () => { stopFlag = true; await send('S'); simAbort?.(); if (!running) toast('とめたよ'); };
 
-// ---------- 動きの見本（上から見たマス） ----------
+// ---------- 動きの見本：つかプロフィールド（横10 × 縦5マス、1マス 13cm） ----------
+// 本物のシート（tsukapro_13cm_print_ready.pdf）と同じ色・同じロゴの位置。左半分はオレンジ、右半分は水色
+const COLS = 10, ROWS = 5;
+const LOGOS = [[0, 0, 1], [2, 1, 1], [4, 2, 1], [2, 3, 1], [0, 4, 1], [9, 0, 0], [7, 1, 0], [5, 2, 0], [7, 3, 0], [9, 4, 0]];   // [列, 行, さかさまか]
 const field = $('field'), fg = field.getContext('2d');
-const sim = {x: 0, y: 0, dir: 0, trail: []};          // dir: 0=上 1=右 2=下 3=左（画面の上が「まえ」）
+const IMGS = {};
+for (const [k, src] of [['logo', 'field-logo.svg'], ['robot', 'robot_top.png']]) { const im = new Image(); im.onload = () => { IMGS[k] = im; drawField(running); }; im.src = src; }
+let START = {x: 0, y: 2, dir: 1};                      // dir: 0=上 1=右 2=下 3=左
+try { Object.assign(START, JSON.parse(localStorage.getItem('tsukapro-start') || '{}')); } catch (e) {}
+const saveStart = () => { try { localStorage.setItem('tsukapro-start', JSON.stringify(START)); } catch (e) {} };
+const sim = {x: 0, y: 0, dir: 0, trail: []};
 let simAbort = null;
-function simReset() { sim.x = 0; sim.y = 0; sim.dir = 0; sim.trail = [[0, 0]]; drawField(); }
+const inside = (x, y) => x >= 0 && x < COLS && y >= 0 && y < ROWS;
+const DX = [0, 1, 0, -1], DY = [-1, 0, 1, 0];
+function simReset() { sim.x = START.x; sim.y = START.y; sim.dir = START.dir; sim.trail = [[START.x, START.y]]; drawField(); }
+// 予定の道。フィールドの外に出る場所があれば out に入れる
 function simPath() {
-  const s = {x: 0, y: 0, dir: 0}, pts = [[0, 0]];
-  for (const b of prog) {
-    if (b.kind === 'F' || b.kind === 'B') { const v = b.kind === 'F' ? 1 : -1; s.x += [0, 1, 0, -1][s.dir] * v; s.y += [-1, 0, 1, 0][s.dir] * v; pts.push([s.x, s.y]); }
-    else s.dir = (s.dir + (b.kind === 'R' ? 1 : 3)) % 4;
+  const s = {x: START.x, y: START.y, dir: START.dir}, pts = [[s.x, s.y]];
+  let out = null;
+  for (let i = 0; i < prog.length; i++) {
+    const b = prog[i];
+    if (b.kind === 'F' || b.kind === 'B') {
+      const v = b.kind === 'F' ? 1 : -1, nx = s.x + DX[s.dir] * v, ny = s.y + DY[s.dir] * v;
+      if (!inside(nx, ny)) { out = {x: nx, y: ny, from: [s.x, s.y], step: i}; break; }
+      s.x = nx; s.y = ny; pts.push([s.x, s.y]);
+    } else s.dir = (s.dir + (b.kind === 'R' ? 1 : 3)) % 4;
   }
-  return pts;
+  return {pts, out};
 }
+// i 番目のブロックで外に出るか（うごかす前に調べて、本物のロボットを止める）
+function leavesAt(i) { const {out} = simPath(); return out && out.step === i; }
 function simStep(k, ms) {
   return new Promise(res => {
     const x0 = sim.x, y0 = sim.y, d0 = sim.dir, t0 = performance.now();
     let x1 = x0, y1 = y0, d1 = d0;
-    if (k === 'F' || k === 'B') { const v = k === 'F' ? 1 : -1; x1 += [0, 1, 0, -1][d0] * v; y1 += [-1, 0, 1, 0][d0] * v; }
+    if (k === 'F' || k === 'B') { const v = k === 'F' ? 1 : -1; x1 += DX[d0] * v; y1 += DY[d0] * v; }
     else d1 = d0 + (k === 'R' ? 1 : -1);
-    let stopped = false; simAbort = () => { stopped = true; };
-    const tick = now => {
-      const p = Math.min(1, (now - t0) / ms), e = p < .5 ? 2 * p * p : 1 - (-2 * p + 2) ** 2 / 2;
+    let stopped = false, finished = false; simAbort = () => { stopped = true; };
+    const finish = () => {
+      if (finished) return; finished = true; clearTimeout(timer);
+      if (!stopped && !stopFlag) { sim.x = x1; sim.y = y1; sim.dir = ((d1 % 4) + 4) % 4; if (k === 'F' || k === 'B') sim.trail.push([x1, y1]); }
+      drawField(true); simAbort = null; res();
+    };
+    // 画面が描かれない間（タブが裏にある・画面が消えた）も、決めた時間がたったら必ず次へ進む
+    const timer = setTimeout(finish, ms + 30);
+    const tick = () => {
+      if (finished) return;
+      const p = Math.min(1, (performance.now() - t0) / ms), e = p < .5 ? 2 * p * p : 1 - (-2 * p + 2) ** 2 / 2;
       sim.x = x0 + (x1 - x0) * e; sim.y = y0 + (y1 - y0) * e; sim.dir = d0 + (d1 - d0) * e;
       drawField(true);
-      if (p < 1 && !stopped && !stopFlag) requestAnimationFrame(tick);
-      else { if (!stopped && !stopFlag) { sim.x = x1; sim.y = y1; sim.dir = ((d1 % 4) + 4) % 4; if (k === 'F' || k === 'B') sim.trail.push([x1, y1]); } drawField(true); simAbort = null; res(); }
+      if (p < 1 && !stopped && !stopFlag) requestAnimationFrame(tick); else finish();
     };
     requestAnimationFrame(tick);
   });
 }
+let board = null;   // いま描いている盤の位置（タップの判定に使う）
 function drawField(live = false) {
   const r = field.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
   if (!r.width) return;
   field.width = r.width * dpr; field.height = r.height * dpr;
   const W = field.width, H = field.height;
   fg.clearRect(0, 0, W, H);
-  const path = simPath();
-  const xs = path.map(p => p[0]), ys = path.map(p => p[1]);
-  const minX = Math.min(-1, ...xs) - 0.5, maxX = Math.max(1, ...xs) + 0.5, minY = Math.min(-1, ...ys) - 0.5, maxY = Math.max(1, ...ys) + 0.5;
-  const cell = Math.min(W / (maxX - minX + 0.4), H / (maxY - minY + 0.4), 90 * dpr);
-  const ox = W / 2 - (minX + maxX) / 2 * cell, oy = H / 2 - (minY + maxY) / 2 * cell;
-  const P = (x, y) => [ox + x * cell, oy + y * cell];
-  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-  // マス目
-  fg.strokeStyle = css('--line'); fg.lineWidth = 1.5 * dpr;
-  for (let x = Math.floor(minX); x <= Math.ceil(maxX); x++) { const [a] = P(x + 0.5, 0); fg.beginPath(); fg.moveTo(a, 0); fg.lineTo(a, H); fg.stroke(); }
-  for (let y = Math.floor(minY); y <= Math.ceil(maxY); y++) { const [, b] = P(0, y + 0.5); fg.beginPath(); fg.moveTo(0, b); fg.lineTo(W, b); fg.stroke(); }
-  // スタート
-  const [sx, sy] = P(0, 0);
-  fg.fillStyle = css('--blue'); fg.globalAlpha = .25; fg.fillRect(sx - cell * .45, sy - cell * .45, cell * .9, cell * .9); fg.globalAlpha = 1;
-  // 予定の道（点線）と、通った道
-  fg.lineCap = 'round'; fg.lineJoin = 'round';
-  fg.setLineDash([cell * .08, cell * .14]); fg.strokeStyle = css('--muted'); fg.lineWidth = 4 * dpr;
-  fg.beginPath(); path.forEach(([x, y], i) => { const [a, b] = P(x, y); i ? fg.lineTo(a, b) : fg.moveTo(a, b); }); fg.stroke();
-  fg.setLineDash([]);
-  if (live || running) {
-    fg.strokeStyle = css('--orange'); fg.lineWidth = 7 * dpr;
-    fg.beginPath(); [...sim.trail, [sim.x, sim.y]].forEach(([x, y], i) => { const [a, b] = P(x, y); i ? fg.lineTo(a, b) : fg.moveTo(a, b); }); fg.stroke();
+  const cell = Math.min((W - 8 * dpr) / COLS, (H - 8 * dpr) / ROWS), ox = (W - cell * COLS) / 2, oy = (H - cell * ROWS) / 2;
+  board = {ox: ox / dpr, oy: oy / dpr, cell: cell / dpr};
+  const C = (x, y) => [ox + (x + 0.5) * cell, oy + (y + 0.5) * cell];
+  // マス（左はオレンジ、右は水色。少しずつ濃さを変える）
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    const left = x < COLS / 2, dark = (x + y) % 2 === 1;
+    fg.fillStyle = left ? (dark ? '#FFE7C4' : '#FFF0DB') : (dark ? '#DCF3FA' : '#EAF8FD');
+    fg.fillRect(ox + x * cell, oy + y * cell, cell + 0.5, cell + 0.5);
   }
-  // ロボット（上から見た丸い体＋タイヤ＋目）
-  const [rx, ry] = live || running ? P(sim.x, sim.y) : P(0, 0), dir = live || running ? sim.dir : 0, s = cell * .34;
-  fg.save(); fg.translate(rx, ry); fg.rotate(dir * Math.PI / 2);
-  fg.fillStyle = '#3a3a3a'; fg.fillRect(-s * 1.25, -s * .55, s * .3, s * 1.1); fg.fillRect(s * .95, -s * .55, s * .3, s * 1.1);
-  fg.fillStyle = css('--blue'); fg.beginPath(); fg.roundRect(-s, -s * 1.05, s * 2, s * 2.1, s * .55); fg.fill();
-  fg.fillStyle = '#fff'; for (const ex of [-.42, .42]) { fg.beginPath(); fg.arc(s * ex, -s * .62, s * .26, 0, 7); fg.fill(); }
-  fg.fillStyle = '#222'; for (const ex of [-.42, .42]) { fg.beginPath(); fg.arc(s * ex, -s * .68, s * .12, 0, 7); fg.fill(); }
-  fg.fillStyle = css('--orange'); fg.beginPath(); fg.arc(0, s * .2, s * .17, 0, 7); fg.fill();
+  fg.strokeStyle = 'rgba(90,100,110,0.55)'; fg.lineWidth = 1 * dpr; fg.setLineDash([4 * dpr, 3 * dpr]);
+  for (let x = 1; x < COLS; x++) { fg.beginPath(); fg.moveTo(ox + x * cell, oy); fg.lineTo(ox + x * cell, oy + ROWS * cell); fg.stroke(); }
+  for (let y = 1; y < ROWS; y++) { fg.beginPath(); fg.moveTo(ox, oy + y * cell); fg.lineTo(ox + COLS * cell, oy + y * cell); fg.stroke(); }
+  fg.setLineDash([]); fg.strokeStyle = 'rgba(90,100,110,0.7)'; fg.lineWidth = 1.5 * dpr; fg.strokeRect(ox, oy, cell * COLS, cell * ROWS);
+  fg.fillStyle = '#F7B15E'; fg.fillRect(ox, oy, 3 * dpr, cell * ROWS); fg.fillStyle = '#7FD0EE'; fg.fillRect(ox + cell * COLS - 3 * dpr, oy, 3 * dpr, cell * ROWS);
+  // ロゴ
+  if (IMGS.logo) for (const [x, y, flip] of LOGOS) {
+    const [cxp, cyp] = C(x, y), s = cell * 0.62;
+    fg.save(); fg.translate(cxp, cyp); if (flip) fg.rotate(Math.PI); fg.drawImage(IMGS.logo, -s / 2, -s / 2, s, s); fg.restore();
+  }
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  // スタートのマス
+  const [sx, sy] = C(START.x, START.y);
+  fg.strokeStyle = css('--green'); fg.lineWidth = 3 * dpr; fg.strokeRect(sx - cell * 0.46, sy - cell * 0.46, cell * 0.92, cell * 0.92);
+  // 予定の道（点線）と、フィールドの外に出るところ
+  const {pts, out} = simPath();
+  fg.lineCap = 'round'; fg.lineJoin = 'round';
+  fg.setLineDash([cell * .08, cell * .12]); fg.strokeStyle = 'rgba(40,50,60,0.55)'; fg.lineWidth = 3 * dpr;
+  fg.beginPath(); pts.forEach(([x, y], i) => { const [a, b] = C(x, y); i ? fg.lineTo(a, b) : fg.moveTo(a, b); });
+  if (out) { const [a, b] = C(out.from[0] + (out.x - out.from[0]) * 0.5, out.from[1] + (out.y - out.from[1]) * 0.5); fg.lineTo(a, b); }
+  fg.stroke(); fg.setLineDash([]);
+  if (out) {
+    const [a, b] = C(out.from[0] + (out.x - out.from[0]) * 0.5, out.from[1] + (out.y - out.from[1]) * 0.5), k = cell * 0.18;
+    fg.strokeStyle = '#e9553f'; fg.lineWidth = 5 * dpr; fg.beginPath(); fg.moveTo(a - k, b - k); fg.lineTo(a + k, b + k); fg.moveTo(a + k, b - k); fg.lineTo(a - k, b + k); fg.stroke();
+  }
+  const hint = $('fieldHint');
+  if (out) { hint.textContent = `${out.step + 1}ばんめの ブロックで フィールドの そとに でちゃうよ`; hint.className = 'hint ng'; }
+  else { hint.textContent = 'マスを タップして スタートを えらぶ（もう いちど タップで むきを かえる）'; hint.className = 'hint'; }
+  // 通った道
+  if (live || running) {
+    fg.strokeStyle = css('--orange'); fg.lineWidth = 6 * dpr;
+    fg.beginPath(); [...sim.trail, [sim.x, sim.y]].forEach(([x, y], i) => { const [a, b] = C(x, y); i ? fg.lineTo(a, b) : fg.moveTo(a, b); }); fg.stroke();
+  }
+  // ロボット（本物のロボットを真上から描いた絵。1マス 13cm に対して、絵の幅は 11.2cm 分）
+  const rx = live || running ? sim.x : START.x, ry = live || running ? sim.y : START.y, dir = live || running ? sim.dir : START.dir;
+  const [px, py] = C(rx, ry), D = cell * 112 / 130;
+  fg.save(); fg.translate(px, py); fg.rotate(dir * Math.PI / 2);
+  fg.shadowColor = 'rgba(0,0,0,0.35)'; fg.shadowBlur = 8 * dpr; fg.shadowOffsetY = 3 * dpr;
+  if (IMGS.robot) fg.drawImage(IMGS.robot, -D / 2, -D / 2 + D * 23 / 112, D, D);
+  else { fg.fillStyle = css('--blue'); fg.fillRect(-D * 0.3, -D * 0.3, D * 0.6, D * 0.6); }
   fg.restore();
 }
+// マスをタップ：ちがうマスならスタートをそこへ、同じマスなら向きを右回りに
+field.addEventListener('click', e => {
+  if (running || !board) return;
+  const r = field.getBoundingClientRect();
+  const x = Math.floor((e.clientX - r.left - board.ox) / board.cell), y = Math.floor((e.clientY - r.top - board.oy) / board.cell);
+  if (!inside(x, y)) return;
+  if (x === START.x && y === START.y) START.dir = (START.dir + 1) % 4; else { START.x = x; START.y = y; }
+  saveStart(); simReset(); beep(880, 0.05);
+});
 addEventListener('resize', () => drawField(running));
 
 // ---------- 音 ----------

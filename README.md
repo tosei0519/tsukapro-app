@@ -22,7 +22,7 @@
 ## GitHub Pages に置く（別の端末で使う）
 
 1. github.com でアカウントを作り、右上の「＋」→「New repository」。名前は `tsukapro-app`、**Public** にして「Create repository」
-2. 「uploading an existing file」を押し、このフォルダの中身（`index.html`・`recognize.js`・`tsukapro-icon.svg`・`README.md`）をまとめてドラッグして「Commit changes」
+2. 「uploading an existing file」を押し、このフォルダの中身（`index.html`・`recognize.js`・`tsukapro-icon.svg`・`field-logo.svg`・`robot_top.png`・`README.md`）をまとめてドラッグして「Commit changes」
 3. リポジトリの「Settings」→ 左の「Pages」→「Branch」を `main`・`/ (root)` にして「Save」
 4. 1〜2分で `https://（アカウント名）.github.io/tsukapro-app/` が開けるようになる。この URL を Chromebook や Windows の Chrome で開く
 
@@ -42,6 +42,14 @@
 4. ③「うごかす」を押す。今動いているブロックがオレンジに光り、下の見本でもロボットが動く。「とめる」ですぐ止まる
 
 ロボットとつないでいなくても、③ で画面の中のロボットだけ動かせます。
+
+## つかプロフィールド（③ うごかそう）
+
+③ の見本は、専用のフィールド（`tsukapro_13cm_print_ready.pdf`、130×65cm、1マス 13cm、横10×縦5マス）と同じ盤です。左半分はオレンジ、右半分は水色で、ロゴの位置も同じです。
+- マスをタップすると、そこがスタートになります。同じマスをもう一度タップすると、ロボットの向きが右回りに変わります（この端末に保存）
+- 並べたプログラムでフィールドの外に出るときは、見本に赤い × と「◯ばんめの ブロックで フィールドの そとに でちゃうよ」が出ます
+- うごかしている途中で外に出るブロックが来たら、そのブロックを送る前にロボットを止めます
+- 「まえ」1つで1マス（13cm）進むように、せんせい用の設定で「まえ・うしろ」の時間を合わせてください
 
 ## 電池の のこり
 
